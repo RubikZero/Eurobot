@@ -63,7 +63,22 @@ bp (为了分开不是b40) : 查询b40
 随机上/下/中/特级：模拟 Splash 随机段位四首歌
 例: 随机上级 （*特级为超上级）
 
-骂我/ 某地疫情 / 随个朱云杰 / 今天吃什么 / 神秘命令 Eurobot等你使用哦
+每次出勤记录：记录每次出勤推分（和本地数据/上次更新数据对比）
+例：!r
+特殊说明：!r的数据是和本地数据对比，所以可能会有以下情况
+1. 本地没有数据 -> 你需要!update来初始化数据
+2. !r没有任何数据 -> 你没推分/没更新查分器/先更新的本地数据再更新查分器
+3. 突然出现很多数据 -> 你可能是(很久)没有更新过，可以看看下面的正确方法
+正确使用方法：
+!update 初始化数据 -> 更新查分器（水鱼）-> !r -> !update
+
+安慰分/查安慰分 <定数>/我想吃安慰分：去看如何在鸟加之前多吃1分
+例: 安慰分
+例：查安慰分 14.7
+例：我想吃安慰分 (需要查分器绑定qq & 在本地!update过)
+
+骂我/ 本期课题 / 随个朱云杰 / 今天吃什么 / 随个吉安娜(不)推荐歌
+还有 神秘命令 Eurobot等你使用哦
 
 5.28新增音击支持！
 音击查歌 <歌名>：查询音击歌曲(大小写不敏感，可模糊搜索)
@@ -91,7 +106,7 @@ version 2.0  updated on 2022.4.7'''
             "file": f"base64://{str(image_to_base64(text_to_image(help_str)), encoding='utf-8')}"
         }
     }]))
-
+    await help.finish("您也可以移步使用指南:\n https://blog.europix.icu/2022/08/25/eurobot/")
 award = on_command('安慰分', aliases= {'奖励分'})
 
 
@@ -151,7 +166,10 @@ def humanNum(num):
 
 
 def getVideoInfo(param_aid, param_bvid):
-    url = f'https://api.bilibili.com/x/web-interface/view?aid={param_aid}&bvid={param_bvid}'
+    if len(param_aid)> 0:
+        url = f'https://api.bilibili.com/x/web-interface/view?aid={param_aid}&bvid={param_bvid}'
+    else:
+        url = f'https://api.bilibili.com/x/web-interface/view?bvid={param_bvid}'
     try:
         with requests.get(url, timeout=20) as resp:
             res = resp.json()
@@ -165,9 +183,9 @@ def getVideoInfo(param_aid, param_bvid):
             danmaku = data['stat']['danmaku']
             play = humanNum(view)
             danku = humanNum(danmaku)
-            # cover = MessageSegment.image(pic)
+            cover = MessageSegment.image(pic)
             result = f'不要再发小程序了QAQ\n为了TIM和电脑端↓\nav{aid}\n{title}\nUP:{name}\n{play}播放 {danku}弹幕\nhttps://www.bilibili.com/video/{bvid}'.strip()
-            return result
+            return result,cover
     except Exception as ex:
         return None
 
@@ -188,10 +206,10 @@ def getSearchVideoInfo(keyword):
             play = humanNum(video['play'])
             danku = humanNum(video['video_view'])
             title = html2text.html2text(video['title'])
-            # cover = MessageSegment.image(f'http://{pic}')
+            cover = MessageSegment.image(f'http://{pic}')
             author = video['author']
             result = f'不要再发小程序了QAQ\n为了TIM和电脑端↓\nav{aid}\n{title}\nUP:{author}\n{play}播放 {danku}弹幕\nhttps://www.bilibili.com/video/{bvid}'.strip()
-            return result
+            return result,cover
     except Exception as ex:
         return None
 
@@ -222,9 +240,9 @@ def getAvBvFromShortLink(link):
 
 
 def getAvBvFromMsg(msg):
-    # search = getAvBvFromNormalLink(msg)
-    # if len(search) > 0:
-    #    return search
+    search = getAvBvFromNormalLink(msg)
+    if len(search) > 0:
+        return search
     search = re.findall(r'b23\.tv\/[a-zA-Z0-9]+', msg)
     if len(search) > 0:
         return getAvBvFromShortLink(f'http://{search[0]}')
@@ -252,25 +270,47 @@ async def _(bot: Bot, event: Event, state: T_State):
     msg = unescape(msg)
     title = None
     is_pro = 0
-    is_match = re.findall(r'\[CQ:rich,.*\]?\S*', msg)
+    is_match1 = re.findall(r'\[CQ:xml,.*\]?\S*', msg)
+    is_match2 = re.findall(r'\[CQ:json,.*\]?\S*', msg)
     keyword1 = '&#91;QQ小程序&#93;哔哩哔哩'
-    keyword2 = '[[QQ小程序]哔哩哔哩]'
-    if len(is_match) > 0:
+    keyword2 = 'QQ小程序'
+    if len(is_match1) > 0:
         if match_msg(keyword1, msg) == True or match_msg(keyword2, msg) == True:
+            #print('match！')
             is_pro = 1
-            search = re.findall(r'"desc":"(.+?)"', msg)
-            if len(search) > 0:
-                title = re.sub(r'/\\"/g', '"', search[1])
-    param = getAvBvFromMsg(msg)
-    if param is None:
+            search = re.findall(r'<source url="(......................)', msg)
+            shortLink = str(search[0])
+            print(shortLink)
+            NormalLink = getAvBvFromShortLink(shortLink)
+            print(NormalLink)
+            #result = getAvBvFromNormalLink(NormalLink)
+            #print(result)
+            if NormalLink is None:
+                pass
+            elif len(NormalLink) > 0:
+                reply,cover = getVideoInfo(NormalLink['aid'], NormalLink['bvid'])
+                if cover is not None:
+                    await sbilibili.send(cover)
+                if reply is not None:
+                    await sbilibili.send(reply)
+    elif len(is_match2) > 0 :            
+        if match_msg(keyword1, msg) == True or match_msg(keyword2, msg) == True:
+            #print('match！')
+            is_pro = 1
+            search = re.findall(r'"qqdocurl":"(......................)', msg)
+            shortLink = str(search[0])
+            print(shortLink)
+            NormalLink = getAvBvFromShortLink(shortLink)
+            print(NormalLink)
+            #result = getAvBvFromNormalLink(NormalLink)
+            #print(result)
+            if NormalLink is None:
+                pass
+            elif len(NormalLink) > 0:
+                reply,cover = getVideoInfo(NormalLink['aid'], NormalLink['bvid'])
+                if cover is not None:
+                    await sbilibili.send(cover)
+                if reply is not None:
+                    await sbilibili.send(reply)            
+    else:
         pass
-    elif len(param) > 0:
-        reply = getVideoInfo(param['aid'], param['bvid'])
-        if reply is not None:
-            await sbilibili.send(reply)
-    isBangumi = re.search(
-        r'bilibili\.com\/bangumi|(b23|acg)\.tv\/(ep|ss)', msg)
-    if isinstance(title, str) and isBangumi:
-        reply = getSearchVideoInfo(title)
-        if reply is not None:
-            await sbilibili.send(reply)
